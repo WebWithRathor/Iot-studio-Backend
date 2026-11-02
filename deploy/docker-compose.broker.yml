@@ -1,0 +1,51 @@
+# Production MQTT broker for IoT Studio, on the same EC2 box as the Kokoon backends.
+# Only the broker runs in Docker; the IoT API runs under the global pm2.
+#
+#   cd ~/kokoon-iot-backend/deploy
+#   cp broker.env.example broker.env   # then set the admin password
+#   docker compose -f docker-compose.broker.yml up -d
+#   docker compose -f docker-compose.broker.yml ps   # wait for "healthy"
+#
+# Needs ./mosquitto/certs/{fullchain,privkey}.pem first (certbot-mqtt-deploy-hook.sh).
+name: kokoon-iot-broker
+
+services:
+  mosquitto:
+    image: eclipse-mosquitto:2.0.22
+    container_name: kokoon-iot-broker
+    env_file: ./broker.env
+    # The first start creates the dynsec admin (the backend's MQTT_USERNAME /
+    # MQTT_PASSWORD). Later starts keep the existing accounts file untouched.
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        set -e
+        if [ ! -f /mosquitto/data/dynamic-security.json ]; then
+          : "$${MQTT_ADMIN_USERNAME:?set in broker.env}" "$${MQTT_ADMIN_PASSWORD:?set in broker.env}"
+          mosquitto_ctrl dynsec init /mosquitto/data/dynamic-security.json "$$MQTT_ADMIN_USERNAME" "$$MQTT_ADMIN_PASSWORD"
+        fi
+        chown -R mosquitto:mosquitto /mosquitto/data
+        chmod 0700 /mosquitto/data/dynamic-security.json
+        exec mosquitto -c /mosquitto/config/mosquitto.conf
+    ports:
+      # TLS only. Open TCP 8883 in the EC2 security group; never 1883.
+      - "0.0.0.0:8883:8883"
+    volumes:
+      - ./mosquitto/mosquitto.prod.conf:/mosquitto/config/mosquitto.conf:ro
+      - ./mosquitto/certs:/mosquitto/certs:ro
+      - broker-data:/mosquitto/data
+    # One file descriptor per connected board: Docker on Linux defaults to a soft limit of 1024.
+    ulimits:
+      nofile: { soft: 65536, hard: 65536 }
+    healthcheck:
+      test: ["CMD-SHELL", "mosquitto_sub -h 127.0.0.1 -p 1883 -u \"$$MQTT_ADMIN_USERNAME\" -P \"$$MQTT_ADMIN_PASSWORD\" -t '$$SYS/broker/uptime' -C 1 -W 5 >/dev/null"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 5s
+    logging:
+      options: { max-size: "10m", max-file: "5" }
+    restart: unless-stopped
+
+volumes:
+  broker-data:

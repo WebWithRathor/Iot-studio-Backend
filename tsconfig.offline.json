@@ -1,0 +1,11 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "ignoreDeprecations": "6.0",
+    "baseUrl": ".",
+    "typeRoots": ["/opt/npm-tools/node_modules/@types"],
+    "paths": { "zod": ["/opt/npm-tools/node_modules/zod"] }
+  },
+  "include": ["src", "scripts", "tests", "types-offline"]
+}

@@ -1,0 +1,113 @@
+# Local development dependencies for Kokoon IoT Studio.
+# Every port is bound to 127.0.0.1 only — nothing is exposed to your network —
+# except the MQTT broker when you set MQTT_BIND_ADDRESS (in .env) so a real
+# ESP32 on your Wi-Fi can reach it, e.g. MQTT_BIND_ADDRESS=0.0.0.0.
+# Credentials here are DEVELOPMENT-ONLY.
+#
+#   docker compose up -d mongo redis                  # default (MQTT_MODE=simulated)
+#   docker compose --profile broker up -d             # + Mosquitto (password file, one shared device account)
+#   docker compose --profile broker-dynsec up -d      # + Mosquitto with dynamic security (one account per LMS device)
+#   docker compose down                               # stop (add -v to delete data)
+# Run only ONE of the two broker profiles: both listen on port 1883.
+name: kokoon-dev
+
+services:
+  mongo:
+    image: mongo:7.0
+    # Single-node replica set so multi-document transactions work locally.
+    command: ["--replSet", "rs0", "--bind_ip_all"]
+    ports:
+      - "127.0.0.1:27017:27017"
+    volumes:
+      - mongo-data:/data/db
+    healthcheck:
+      # Initiates the replica set on first start, then reports healthy once PRIMARY.
+      test: ["CMD", "mongosh", "--quiet", "--eval", "try { rs.status().ok } catch (e) { rs.initiate({ _id: 'rs0', members: [{ _id: 0, host: 'localhost:27017' }] }).ok }"]
+      interval: 5s
+      timeout: 10s
+      retries: 20
+      start_period: 10s
+    restart: unless-stopped
+
+  redis:
+    image: redis:7.2-alpine
+    command: ["redis-server", "--requirepass", "kokoon-dev-redis", "--appendonly", "yes", "--maxmemory", "256mb", "--maxmemory-policy", "volatile-lru"]
+    ports:
+      - "127.0.0.1:6379:6379"
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "kokoon-dev-redis", "--no-auth-warning", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+
+  mosquitto:
+    image: eclipse-mosquitto:2.0.22
+    profiles: ["broker"]
+    # Generates the password file at start (dev credentials) — anonymous access is disabled.
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        mosquitto_passwd -c -b /mosquitto/config/passwords kokoon-backend kokoon-dev-mqtt &&
+        mosquitto_passwd -b /mosquitto/config/passwords esp32-device kokoon-dev-device &&
+        chmod 0700 /mosquitto/config/passwords &&
+        exec mosquitto -c /mosquitto/config/mosquitto.conf
+    ports:
+      - "${MQTT_BIND_ADDRESS:-127.0.0.1}:1883:1883"
+    volumes:
+      - ./docker/mosquitto/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
+      - ./docker/mosquitto/acl:/mosquitto/config/acl:ro
+    # One file descriptor per connected board: Docker on Linux defaults to a soft limit of 1024.
+    ulimits:
+      nofile: { soft: 65536, hard: 65536 }
+    healthcheck:
+      test: ["CMD", "mosquitto_sub", "-h", "127.0.0.1", "-p", "1883", "-u", "kokoon-backend", "-P", "kokoon-dev-mqtt", "-t", "$$SYS/broker/uptime", "-C", "1", "-W", "5"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 5s
+    logging:
+      options: { max-size: "10m", max-file: "3" }
+    restart: unless-stopped
+
+  # BROKER_CREDENTIALS_MODE=mosquitto-dynsec: the backend account (kokoon-backend) is the
+  # dynamic-security admin and creates one client + role per device flashed from the LMS.
+  mosquitto-dynsec:
+    image: eclipse-mosquitto:2.0.22
+    profiles: ["broker-dynsec"]
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        if [ ! -f /mosquitto/data/dynamic-security.json ]; then
+          mosquitto_ctrl dynsec init /mosquitto/data/dynamic-security.json kokoon-backend kokoon-dev-mqtt
+        fi &&
+        chown -R mosquitto:mosquitto /mosquitto/data &&
+        chmod 0700 /mosquitto/data/dynamic-security.json &&
+        exec mosquitto -c /mosquitto/config/mosquitto.conf
+    ports:
+      - "${MQTT_BIND_ADDRESS:-127.0.0.1}:1883:1883"
+      # Production TLS (uncomment with the 8883 listener in mosquitto-dynsec.conf):
+      # - "0.0.0.0:8883:8883"
+    volumes:
+      - ./docker/mosquitto/mosquitto-dynsec.conf:/mosquitto/config/mosquitto.conf:ro
+      - mosquitto-dynsec-data:/mosquitto/data
+      # - ./docker/mosquitto/certs:/mosquitto/certs:ro
+    ulimits:
+      nofile: { soft: 65536, hard: 65536 }
+    healthcheck:
+      # The dynsec admin (created by `mosquitto_ctrl dynsec init`) may read $SYS.
+      test: ["CMD", "mosquitto_sub", "-h", "127.0.0.1", "-p", "1883", "-u", "kokoon-backend", "-P", "kokoon-dev-mqtt", "-t", "$$SYS/broker/uptime", "-C", "1", "-W", "5"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 5s
+    logging:
+      options: { max-size: "10m", max-file: "3" }
+    restart: unless-stopped
+
+volumes:
+  mongo-data:
+  redis-data:
+  mosquitto-dynsec-data:

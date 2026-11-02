@@ -1,0 +1,17 @@
+# Backend: full access to the Kokoon namespace.
+user kokoon-backend
+topic readwrite kokoon/#
+# Broker stats (used by the docker-compose healthcheck).
+topic read $SYS/#
+
+# Example device account (dev). In production give EACH device its own
+# account restricted to its own namespace, e.g. using a %c (client id) pattern:
+#   pattern write kokoon/devices/%c/telemetry/#
+#   pattern write kokoon/devices/%c/ack/#
+#   pattern write kokoon/devices/%c/availability
+#   pattern read  kokoon/devices/%c/command/#
+user esp32-device
+topic write kokoon/devices/+/telemetry/#
+topic write kokoon/devices/+/ack/#
+topic write kokoon/devices/+/availability
+topic read kokoon/devices/+/command/#
