@@ -101,6 +101,8 @@ export const envSchema = z
     RAZORPAY_WEBHOOK_SECRET: z.string().min(8).optional(),
 
     REGISTRATION_ENABLED: bool(true),
+    /** The token budget (plans, kit codes, costs). Off until the admin switches it on in the admin panel. */
+    TOKENS_ENABLED: bool(false),
     DEMO_WORKSPACE_ON_SIGNUP: bool(true),
 
     /** Kokoon LMS integration (SSO + server-to-server device API). See docs/LMS-INTEGRATION.md. */

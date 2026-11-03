@@ -20,7 +20,7 @@ export type AuditAction =
   | 'plan.change' | 'plan.kit.redeem' | 'kit.codes.generate'
   | 'payment.paid' | 'payment.verify.failed' | 'payment.webhook.rejected'
   | 'lms.sso.login' | 'lms.sso.rejected' | 'lms.user.linked' | 'lms.user.created'
-  | 'lms.api.rejected' | 'lms.device.upserted' | 'lms.device.disabled' | 'lms.device.credentials';
+  | 'lms.api.rejected' | 'lms.device.upserted' | 'lms.device.disabled' | 'lms.device.credentials' | 'app.settings.change';
 
 export interface AuditEvent {
   action: AuditAction;

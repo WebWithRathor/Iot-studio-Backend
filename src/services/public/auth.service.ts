@@ -1,3 +1,4 @@
+import { appSettings } from '../shared/app-settings.service';
 import * as argon2 from 'argon2';
 import { loadEnv } from '../../config/env.config';
 import { jwtConfig } from '../../config/jwt.config';
@@ -122,6 +123,7 @@ export const authService = {
     const lms = lmsConfig();
     return {
       registrationEnabled: e.REGISTRATION_ENABLED,
+      tokensEnabled: appSettings.tokensEnabled(),
       demoWorkspaceOnSignup: e.DEMO_WORKSPACE_ON_SIGNUP,
       mqttMode: e.MQTT_MODE,
       lmsSso: { enabled: lms.enabled && Boolean(lms.ssoStartUrl), startUrl: lms.enabled ? lms.ssoStartUrl : null },

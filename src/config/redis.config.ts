@@ -22,6 +22,7 @@ export const redisKeys = {
   pendingCommand: (topic: string) => `cmd:${topic}`,
   rateLimit: (name: string) => `rl:${name}:`,
   simState: () => 'sim:state',
+  appSettings: () => 'app:settings',
   lmsSsoJti: (jti: string) => `lms:sso-jti:${jti}`,
   lmsIdempotency: (requestId: string) => `lms:idem:${requestId}`,
 };

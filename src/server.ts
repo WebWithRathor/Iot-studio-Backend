@@ -1,3 +1,4 @@
+import { appSettings } from './services/shared/app-settings.service';
 import type { Server } from 'node:http';
 import { EnvValidationError, loadEnv } from './config/env.config';
 import { connectMongo, disconnectMongo } from './database/mongo.connection';
@@ -37,6 +38,7 @@ async function main() {
   await ensureIndexes();
   await detectTransactionSupport();
   await redisService.connect();
+  await appSettings.load();
   await mqttConnection.connect();
   if (env.LMS_INTEGRATION_ENABLED) {
     const provider = brokerCredentials.provider();

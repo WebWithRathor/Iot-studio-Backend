@@ -1,3 +1,4 @@
+import { appSettings } from './app-settings.service';
 import type { Types } from 'mongoose';
 import { loadEnv } from '../../config/env.config';
 import { DEFAULT_PLAN, PLAN_LABELS, PLANS, TOKEN_COSTS, type Plan, type TokenCosts } from '../../constants/plans.constants';
@@ -85,6 +86,8 @@ export const tokenWallet = {
   /** Throws 402 INSUFFICIENT_TOKENS when `cost` more tokens would exceed the allowance. A cost ≤ 0 always passes (saves that shrink a dashboard). */
   assertCanAfford: async (userId: string, cost: number, what: string): Promise<void> => {
     if (cost <= 0) return;
+    // Tokens switched off by an admin: nothing is charged
+    if (!appSettings.tokensEnabled()) return;
     const s = await tokenWallet.state(userId);
     if (s.used + cost > s.allowance) {
       throw insufficientTokens(

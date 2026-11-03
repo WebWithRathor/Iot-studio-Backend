@@ -244,6 +244,16 @@ export const redisService = {
     await c().del(redisKeys.lmsIdempotency(requestId));
   },
 
+  /* ------------------------------------------------------ app settings */
+
+  async getRaw(key: string): Promise<string | null> {
+    return c().get(key);
+  },
+
+  async setRaw(key: string, value: string): Promise<void> {
+    await c().set(key, value);
+  },
+
   /* ------------------------------------------------- pending commands */
 
   async setPending(topic: string, data: { messageId: string; ownerId: string; at: number }, ttlSec: number): Promise<void> {
