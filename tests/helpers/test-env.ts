@@ -17,6 +17,10 @@ const defaults: Record<string, string> = {
   JWT_REFRESH_SECRET: randomBytes(48).toString('base64url'),
   ENCRYPTION_KEY: randomBytes(32).toString('base64'),
   MQTT_MODE: 'simulated',
+  // Pinned so a developer .env (e.g. mosquitto-dynsec, which needs MQTT_MODE=broker) can't leak
+  // in through dotenv and make loadEnv() reject the test settings. LMS tests set their own first.
+  BROKER_CREDENTIALS_MODE: 'shared',
+  LMS_INTEGRATION_ENABLED: 'false',
   DEMO_SIMULATION: 'false',
   DEMO_WORKSPACE_ON_SIGNUP: 'false',
   LOG_LEVEL: 'error',
