@@ -28,6 +28,9 @@ export function getApp(): Promise<Express | null> {
   booted ??= (async () => {
     try {
       await connectMongo();
+      // Never wipe a real database: only one whose name ends in _test (e.g. kokoon_test)
+      const dbName = mongoose.connection.db!.databaseName;
+      if (!/_test$/.test(dbName)) throw new Error(`refusing to drop "${dbName}": integration tests only run on a database named *_test (set TEST_MONGODB_URI)`);
       await mongoose.connection.db!.dropDatabase();
       await ensureIndexes();
       await detectTransactionSupport();

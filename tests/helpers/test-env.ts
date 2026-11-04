@@ -21,6 +21,8 @@ const defaults: Record<string, string> = {
   // in through dotenv and make loadEnv() reject the test settings. LMS tests set their own first.
   BROKER_CREDENTIALS_MODE: 'shared',
   LMS_INTEGRATION_ENABLED: 'false',
+  // The token budget is off by default since the admin switch (f48d188); the tests cover it switched on
+  TOKENS_ENABLED: 'true',
   DEMO_SIMULATION: 'false',
   DEMO_WORKSPACE_ON_SIGNUP: 'false',
   LOG_LEVEL: 'error',
