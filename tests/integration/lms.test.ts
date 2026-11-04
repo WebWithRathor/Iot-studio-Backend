@@ -5,6 +5,7 @@ import { after, describe, it } from 'node:test';
 import type { Express } from 'express';
 import jwt from 'jsonwebtoken';
 import { userDao } from '../../src/dao/user.dao';
+import { VariableModel } from '../../src/models/variable.model';
 import { hashPassword } from '../../src/services/public/auth.service';
 import { LMS_HEADERS, signLmsRequest } from '../../src/utils/lms-signature.util';
 import { LMS_TEST } from '../helpers/lms-test-env';
@@ -153,6 +154,34 @@ describe('LMS device API (contract B)', () => {
     assert.equal(status.status, 200);
     assert.equal(status.body.ownerLmsUserId, user.sub);
     assert.deepEqual(status.body.projectIds, [first.body.projectId]);
+  });
+
+  it('B1 follows the LMS blocks: a new direction updates, a renamed key keeps its variable, a dropped one is removed', async (t) => {
+    const app = await getApp();
+    if (!app) return t.skip(unavailableReason);
+    const user = { sub: `u_${randomUUID()}`, email: uniqueEmail('lms') };
+    const h = hardwareId();
+    const first = await lms(app, 'PUT', h, upsertBody(user));
+    assert.equal(first.status, 201, JSON.stringify(first.body));
+    const vars = async () => (await VariableModel.find({ projectId: first.body.projectId }).lean().exec()).sort((a, b) => a.key.localeCompare(b.key));
+    const ledId = String((await vars()).find((v) => v.key === 'led_state')!._id);
+
+    // Same blocks: temperature now goes IoT Studio -> board; the LED block's key renamed to "led"
+    const body = upsertBody(user);
+    body.variables = [
+      { ...body.variables[0]!, direction: 'command' },
+      { ...body.variables[1]!, key: 'led' },
+    ];
+    assert.equal((await lms(app, 'PUT', h, body)).status, 200);
+    let now = await vars();
+    assert.deepEqual(now.map((v) => [v.key, v.direction]), [['led', 'bidirectional'], ['temperature', 'command']]);
+    assert.equal(String(now.find((v) => v.key === 'led')!._id), ledId, 'the renamed key keeps its variable');
+
+    // The LED block deleted in the LMS: its variable goes away
+    body.variables = [body.variables[0]!];
+    assert.equal((await lms(app, 'PUT', h, body)).status, 200);
+    now = await vars();
+    assert.deepEqual(now.map((v) => v.key), ['temperature']);
   });
 
   it('replays an idempotent retry and refuses a reused request id with another body', async (t) => {

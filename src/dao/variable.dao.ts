@@ -71,14 +71,6 @@ export const variableDao = {
         .exec(), { id });
   },
 
-  /** LMS sync: flag this device's firmware variables in a project that the latest program no longer declares. */
-  markUndeclared: (projectId: string, deviceId: string, declaredKeys: string[]) =>
-    dbOp(E, 'markUndeclared', () =>
-      VariableModel.updateMany(
-        { projectId: oid(projectId), deviceId: oid(deviceId), 'firmwareRef.source': 'lms', 'firmwareRef.variableName': { $nin: declaredKeys } },
-        { $set: { 'firmwareRef.declared': false } },
-      ).exec(), { id: projectId }),
-
   /** Detach a device from variables when it leaves a project owner's hands. */
   clearDevice: (deviceId: string) => dbOp(E, 'clearDevice', () => VariableModel.updateMany({ deviceId: oid(deviceId) }, { $set: { deviceId: null } }).exec(), { id: deviceId }),
 

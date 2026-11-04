@@ -7,6 +7,7 @@
  *
  *   npm run lms:device -- --hardware kk-esp32s3-test01 [--sub u_test --email … --name …]
  *                         [--program prog_demo_room] [--version r1] [--no-project] [--rotate]
+ *                         [--variables declarations.json]
  *   npm run lms:device -- --hardware kk-esp32s3-test01 --get       (B2: status)
  *   npm run lms:device -- --hardware kk-esp32s3-test01 --delete    (B3: disable + revoke)
  *       → sends a signed request and prints the response
@@ -70,10 +71,13 @@ async function device() {
           user: { lmsUserId: user.sub, email: user.email, emailVerified: !flag('unverified'), name: user.name },
           device: { name: opt('device-name', 'Desk ESP32'), board: opt('board', 'ESP32-S3 DevKitC'), firmwareVersion: opt('version', 'r1') },
           program: { programId: opt('program', 'prog_demo_room'), name: opt('program-name', 'Room Monitor (test)'), version: opt('version', 'r1') },
-          variables: [
-            { key: 'temperature', displayName: 'Temperature', dataType: 'float', direction: 'telemetry', unit: '°C', min: 0, max: 50, blockId: 'blk_temp' },
-            { key: 'led_state', displayName: 'LED', dataType: 'boolean', direction: 'bidirectional', blockId: 'blk_led' },
-          ],
+          // --variables <file.json>: the declarations to send (what the student's "Declare IoT variable" blocks say)
+          variables: opt('variables', '')
+            ? JSON.parse(fs.readFileSync(opt('variables', ''), 'utf8'))
+            : [
+                { key: 'temperature', displayName: 'Temperature', dataType: 'float', direction: 'telemetry', unit: '°C', min: 0, max: 50, blockId: 'blk_temp' },
+                { key: 'led_state', displayName: 'LED', dataType: 'boolean', direction: 'bidirectional', blockId: 'blk_led' },
+              ],
           project: { create: !flag('no-project') },
         })
       : '';

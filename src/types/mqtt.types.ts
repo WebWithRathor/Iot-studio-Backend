@@ -66,7 +66,9 @@ export type RealtimeEvent =
   | { type: 'command'; data: { topic: string; command: CommandStateDTO } }
   | { type: 'activity'; data: ActivityEventDTO }
   | { type: 'status'; data: MqttStatusDTO }
-  | { type: 'workspace'; data: { reason: string } };
+  | { type: 'workspace'; data: { reason: string } }
+  /** The LMS re-synced a board (B1): its declarations and its project's variables changed; removed ones were unbound from dashboards. */
+  | { type: 'lms_sync'; data: { deviceId: string; projectId: string | null; removedVariableIds: string[] } };
 
 /** Normalised inbound message handed to the MQTT pipeline. */
 export interface TransportMessage {

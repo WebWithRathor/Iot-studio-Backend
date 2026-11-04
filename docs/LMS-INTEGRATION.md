@@ -272,8 +272,17 @@ Other choices the contract leaves open:
   (the project already has the maximum number of variables).
 - **Variable keys.** If a project already has a variable with the declared key that is
   not linked to this device's firmware, the new one is created as `key_2` (`key_3`, …).
-  Variables no longer declared keep their data and get `firmwareRef.declared = false`;
-  the Studio shows "No longer declared".
+  A declaration is matched to an existing variable of this board by key, then by `blockId`
+  (the student renamed the key in the same block: the variable is renamed and keeps its
+  widgets), then to a variable made by hand in IoT Studio with that key. Direction, type,
+  name, unit and range always follow the latest declaration.
+- **Removed declarations.** LMS variables of this board that the program no longer declares
+  are **deleted** (widgets bound to them are unbound), replacing the contract's "kept but
+  flagged". The activity log records which keys were removed.
+- **Live refresh.** After every B1 the owner's open IoT Studio tabs get an `lms_sync` stream
+  event (`{deviceId, projectId, removedVariableIds}`) and re-read devices, projects and
+  variables, so a dashboard shows new directions or removed keys without a reload.
+  Students can also delete any variable from a widget's Data tab.
 - **LMS users and passwords.** LMS-created accounts have `passwordSet: false`; password login
   is refused (generic "invalid credentials") until the student sets a password under
   Profile, which does not ask for a current password in that case.

@@ -6,10 +6,13 @@ import { LIMITS } from '../../constants/app.constants';
 import { ERROR_CODES } from '../../constants/error-codes.constants';
 import { deviceDao } from '../../dao/device.dao';
 import { projectDao } from '../../dao/project.dao';
+import { dashboardDao } from '../../dao/dashboard.dao';
 import { userDao } from '../../dao/user.dao';
 import { variableDao } from '../../dao/variable.dao';
 import type { CapabilityDoc, DeviceDoc } from '../../models/device.model';
 import type { LmsProgramRef, ProjectDoc } from '../../models/project.model';
+import type { VariableDoc } from '../../models/variable.model';
+import { withTransaction } from '../../database/mongo.transactions';
 import { AppError } from '../../utils/error.util';
 import { LmsApiError } from '../../utils/lms-api-error.util';
 import { chipInUseDetails, decideChipBinding } from '../../utils/lms-chip.util';
@@ -100,9 +103,9 @@ async function resolveOwner(input: LmsUpsertDeviceInput['user'], ip?: string) {
 /**
  * Project for the program: reuse the student's project linked to this
  * programId, else create one (normal token costs). Then upsert one variable
- * per declaration with firmwareRef, and flag the ones no longer declared.
+ * per declaration with firmwareRef, and remove the ones no longer declared.
  */
-async function syncProject(userId: string, device: DeviceDoc, program: LmsProgramRef, variables: LmsVariableInput[], warnings: LmsWarning[]): Promise<string | null> {
+async function syncProject(userId: string, device: DeviceDoc, program: LmsProgramRef, variables: LmsVariableInput[], warnings: LmsWarning[]): Promise<{ projectId: string; removedVariableIds: string[] } | null> {
   const deviceId = String(device._id);
   let project: ProjectDoc | null = await projectDao.findOwnedByLmsProgram(userId, program.programId);
   if (!project) {
@@ -141,10 +144,38 @@ async function syncProject(userId: string, device: DeviceDoc, program: LmsProgra
 
   const projectId = String(project._id);
   const existing = await variableDao.listByProject(projectId, userId);
-  let count = existing.length;
+  const mine = existing.filter((x) => String(x.deviceId) === deviceId);
+  const fromLms = (x: VariableDoc) => x.firmwareRef?.source === 'lms';
+
+  // Which existing variable each declaration updates: same key first, then the same
+  // block (the student renamed the key in the LMS: keep the variable and its widgets),
+  // then a variable made by hand in IoT Studio with that key.
+  const claimed = new Set<string>();
+  const matchOf = new Map<LmsVariableInput, VariableDoc>();
+  const claim = (v: LmsVariableInput, x: VariableDoc | undefined) => {
+    if (!x) return;
+    claimed.add(String(x._id));
+    matchOf.set(v, x);
+  };
+  const free = (x: VariableDoc) => !claimed.has(String(x._id));
+  for (const v of variables) claim(v, mine.find((x) => free(x) && fromLms(x) && x.firmwareRef!.variableName === v.key));
+  for (const v of variables) if (!matchOf.has(v)) claim(v, mine.find((x) => free(x) && fromLms(x) && x.firmwareRef!.blockId === v.blockId));
+  for (const v of variables) if (!matchOf.has(v)) claim(v, mine.find((x) => free(x) && !x.firmwareRef && x.key === v.key));
+
+  // Variables this board's program no longer declares are removed (widgets using them are
+  // unbound), before the renames and new keys below so their keys are free again.
+  const removed = mine.filter((x) => fromLms(x) && free(x));
+  for (const x of removed) {
+    await withTransaction('variable.lms_undeclared', async (session) => {
+      await dashboardDao.unbindVariable(projectId, String(x._id), session);
+      await variableDao.deleteOwned(String(x._id), userId, session);
+    });
+  }
+  const taken = new Set(existing.filter((x) => !removed.includes(x)).map((x) => x.key));
+
+  let count = existing.length - removed.length;
   let added = 0;
   let updated = 0;
-  const taken = new Set(existing.map((v) => v.key));
   for (const v of variables) {
     const topics = suggestTopics(device.topicPrefix, v.key, v.direction);
     const firmwareRef = { source: 'lms' as const, blockId: v.blockId, variableName: v.key, declared: true };
@@ -152,11 +183,21 @@ async function syncProject(userId: string, device: DeviceDoc, program: LmsProgra
       displayName: v.displayName, dataType: v.dataType, direction: v.direction, deviceId: device._id,
       stateTopic: topics.stateTopic, commandTopic: topics.commandTopic, unit: v.unit, min: v.min, max: v.max, firmwareRef,
     };
-    const match =
-      existing.find((x) => String(x.deviceId) === deviceId && x.firmwareRef?.variableName === v.key) ??
-      existing.find((x) => String(x.deviceId) === deviceId && !x.firmwareRef && x.key === v.key);
+    const freeKey = () => {
+      let key = v.key;
+      for (let n = 2; taken.has(key); n++) key = `${v.key}_${n}`.slice(0, 40);
+      taken.add(key);
+      return key;
+    };
+    const match = matchOf.get(v);
     if (match) {
-      await variableDao.updateFromFirmware(String(match._id), userId, fields);
+      let key: string | undefined;
+      if (match.key !== v.key && fromLms(match) && match.firmwareRef!.variableName !== v.key) {
+        // Renamed in the LMS: follow the new key (suffixed if another variable already uses it)
+        taken.delete(match.key);
+        key = freeKey();
+      }
+      await variableDao.updateFromFirmware(String(match._id), userId, { ...fields, ...(key ? { key } : {}) });
       updated++;
       continue;
     }
@@ -164,19 +205,21 @@ async function syncProject(userId: string, device: DeviceDoc, program: LmsProgra
       if (!warnings.includes('variable_limit_reached')) warnings.push('variable_limit_reached');
       continue;
     }
-    let key = v.key;
-    for (let n = 2; taken.has(key); n++) key = `${v.key}_${n}`.slice(0, 40);
-    taken.add(key);
-    await variableDao.create({ _id: new Types.ObjectId(), projectId: project._id, ownerId: oid(userId), key, ...fields });
+    await variableDao.create({ _id: new Types.ObjectId(), projectId: project._id, ownerId: oid(userId), key: freeKey(), ...fields });
     count++;
     added++;
   }
-  await variableDao.markUndeclared(projectId, deviceId, variables.map((v) => v.key));
   if (added || updated) {
     await activityService.record({ ownerId: userId, projectId, deviceId, type: 'variable.created', message: `${device.name}: ${added} variable(s) added and ${updated} updated from the LMS program “${program.name}”` });
   }
+  if (removed.length) {
+    await activityService.record({
+      ownerId: userId, projectId, deviceId, type: 'variable.deleted',
+      message: `${device.name}: ${removed.map((x) => x.key).join(', ')} removed — no longer declared in the LMS program “${program.name}” (widgets using ${removed.length > 1 ? 'them' : 'it'} are now unbound)`,
+    });
+  }
   // Every variable written here belongs to this device: the caller reloads it in the registry.
-  return projectId;
+  return { projectId, removedVariableIds: removed.map((x) => String(x._id)) };
 }
 
 /** 422 when one more ACTIVE device would exceed the per-account cap (new board, or re-enabling one after B3). */
@@ -334,10 +377,13 @@ export const lmsIntegrationService = {
       });
 
       const warnings: LmsWarning[] = [];
-      const projectId = input.project.create ? await syncProject(userId, device, program, input.variables, warnings) : null;
+      const synced = input.project.create ? await syncProject(userId, device, program, input.variables, warnings) : null;
+      const projectId = synced?.projectId ?? null;
 
       // This one device and its (just synced) variables, not a full reload of every device: B1 comes in classroom bursts.
       await deviceRegistry.reloadDevice(deviceId);
+      // An open IoT Studio tab refreshes this board's declarations and the project's variables now, not on the next reload.
+      realtimeService.toUser(userId, { type: 'lms_sync', data: { deviceId, projectId, removedVariableIds: synced?.removedVariableIds ?? [] } });
       // A re-enabled board only re-entered the registry just now, with the state stored before B3 cut it off.
       if (credentials && cutsOldLogin && wasDisabled) await markOldLoginCut(device);
 
